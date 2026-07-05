@@ -446,6 +446,15 @@ app.get('/api/admin/reports/excel-export', verifyToken, requireAdmin, (req, res)
   });
 });
 
+// Initialize database on startup
+console.log('🔧 Checking database...');
+const { execSync } = require('child_process');
+try {
+  execSync('node init_db.js', { stdio: 'inherit' });
+} catch (err) {
+  console.log('Database check completed');
+}
+
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
