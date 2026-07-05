@@ -1,97 +1,190 @@
-﻿const { Pool } = require('pg');
+﻿const sqlite3 = require('sqlite3').verbose();
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 
-const pool = new Pool({
-  user: 'postgres',
-  host: 'localhost',
-  port: 5432,
-  database: 'nihuul_binyan'
-});
+const dbPath = path.join(__dirname, 'nihuul_binyan.db');
 
-const createTables = async () => {
-  try {
-    console.log('🔄 יוצר טבלאות בבסיס הנתונים...');
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        full_name VARCHAR(255) NOT NULL,
-        apartment_number VARCHAR(20),
-        user_type VARCHAR(50) NOT NULL DEFAULT 'resident',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ טבלה: users');
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS payments (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        amount DECIMAL(10, 2) NOT NULL,
-        payment_date DATE NOT NULL,
-        status VARCHAR(50) DEFAULT 'pending',
-        month INTEGER,
-        year INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ טבלה: payments');
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS maintenance_requests (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        status VARCHAR(50) DEFAULT 'open',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ טבלה: maintenance_requests');
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS announcements (
-        id SERIAL PRIMARY KEY,
-        admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        title VARCHAR(255) NOT NULL,
-        content TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ טבלה: announcements');
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS votes (
-        id SERIAL PRIMARY KEY,
-        admin_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        status VARCHAR(50) DEFAULT 'open',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        ends_at TIMESTAMP
-      )
-    `);
-    console.log('✅ טבלה: votes');
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS vote_responses (
-        id SERIAL PRIMARY KEY,
-        vote_id INTEGER REFERENCES votes(id) ON DELETE CASCADE,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        response VARCHAR(50) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    console.log('✅ טבלה: vote_responses');
-
-    console.log('🎉 כל הטבלאות נוצרו בהצלחה!');
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ שגיאה:', error.message);
+const db = new sqlite3.Database(dbPath, (err) => {
+  if (err) {
+    console.error('Database error:', err);
     process.exit(1);
   }
-};
+  console.log('✅ Database connected');
+});
 
-createTables();
+// Check if DB already initialized
+db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='users'", (err, row) => {
+  if (row) {
+    console.log('✅ Database already initialized');
+    db.close();
+    process.exit(0);
+  }
+  
+  console.log('🔧 Initializing database...');
+  initializeDatabase();
+});
+
+function initializeDatabase() {
+  db.serialize(() => {
+    // Users Table
+    db.run(`
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT NOT NULL,
+        apartment_number TEXT NOT NULL,
+        phone TEXT,
+        user_type TEXT DEFAULT 'resident',
+        is_approved INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Users table error:', err);
+      else console.log('✅ Users table created');
+    });
+
+    // Maintenance Requests Table
+    db.run(`
+      CREATE TABLE maintenance_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        title TEXT,
+        description TEXT,
+        status TEXT DEFAULT 'new',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      )
+    `, (err) => {
+      if (err) console.error('Maintenance table error:', err);
+      else console.log('✅ Maintenance table created');
+    });
+
+    // Payments Table
+    db.run(`
+      CREATE TABLE payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        year INTEGER,
+        month INTEGER,
+        amount REAL,
+        status TEXT DEFAULT 'pending',
+        proof_file_path TEXT,
+        proof_notes TEXT,
+        reject_reason TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      )
+    `, (err) => {
+      if (err) console.error('Payments table error:', err);
+      else console.log('✅ Payments table created');
+    });
+
+    // Announcements Table
+    db.run(`
+      CREATE TABLE announcements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id INTEGER,
+        title TEXT,
+        content TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(admin_id) REFERENCES users(id)
+      )
+    `, (err) => {
+      if (err) console.error('Announcements table error:', err);
+      else console.log('✅ Announcements table created');
+    });
+
+    // Votes Table
+    db.run(`
+      CREATE TABLE votes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id INTEGER,
+        title TEXT,
+        description TEXT,
+        status TEXT DEFAULT 'open',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(admin_id) REFERENCES users(id)
+      )
+    `, (err) => {
+      if (err) console.error('Votes table error:', err);
+      else console.log('✅ Votes table created');
+    });
+
+    // Vote Options Table
+    db.run(`
+      CREATE TABLE vote_options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vote_id INTEGER,
+        option_text TEXT,
+        vote_count INTEGER DEFAULT 0,
+        FOREIGN KEY(vote_id) REFERENCES votes(id)
+      )
+    `, (err) => {
+      if (err) console.error('Vote options table error:', err);
+      else console.log('✅ Vote options table created');
+    });
+
+    // Votes Cast Table
+    db.run(`
+      CREATE TABLE votes_cast (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        vote_id INTEGER,
+        user_id INTEGER,
+        FOREIGN KEY(vote_id) REFERENCES votes(id),
+        FOREIGN KEY(user_id) REFERENCES users(id)
+      )
+    `, (err) => {
+      if (err) console.error('Votes cast table error:', err);
+      else console.log('✅ Votes cast table created');
+    });
+
+    // Expenses Table
+    db.run(`
+      CREATE TABLE expenses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        maintenance_fee REAL DEFAULT 0,
+        electricity REAL DEFAULT 0,
+        cleaning REAL DEFAULT 0,
+        gardening REAL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `, (err) => {
+      if (err) console.error('Expenses table error:', err);
+      else console.log('✅ Expenses table created');
+    });
+
+    // Insert Admin User
+    const adminHash = crypto.createHash('sha256').update('admin123').digest('hex');
+    db.run(
+      `INSERT INTO users (email, password_hash, full_name, apartment_number, user_type, is_approved) VALUES (?, ?, ?, ?, 'admin', 1)`,
+      ['admin@test.com', adminHash, 'Admin', 'Admin', 'Admin'],
+      (err) => {
+        if (err) console.error('Admin insert error:', err);
+        else console.log('✅ Admin user created (admin@test.com / admin123)');
+      }
+    );
+
+    // Insert Test Residents
+    const residentHash = crypto.createHash('sha256').update('123456').digest('hex');
+    for (let i = 1; i <= 3; i++) {
+      db.run(
+        `INSERT INTO users (email, password_hash, full_name, apartment_number, phone, user_type, is_approved) VALUES (?, ?, ?, ?, ?, 'resident', 1)`,
+        [`resident${i}@test.com`, residentHash, `דייר ${i}`, `דירה ${i}`, `050-000-000${i}`, 'resident'],
+        (err) => {
+          if (!err) console.log(`✅ Resident ${i} created`);
+        }
+      );
+    }
+
+    // Close DB after 2 seconds
+    setTimeout(() => {
+      db.close(() => {
+        console.log('\n✅ Database initialization complete!');
+        process.exit(0);
+      });
+    }, 2000);
+  });
+}
