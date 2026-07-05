@@ -1,0 +1,29 @@
+const sqlite3 = require('sqlite3').verbose();
+const bcrypt = require('bcryptjs');
+
+const db = new sqlite3.Database('./nihuul_binyan.db');
+
+async function addAdmin() {
+  const email = 'admin@test.com';
+  const password = 'admin123';
+  const full_name = 'מנהל וועד';
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  db.run(
+    'INSERT INTO users (email, password_hash, full_name, user_type) VALUES (?, ?, ?, ?)',
+    [email, hashedPassword, full_name, 'admin'],
+    function(err) {
+      if (err) {
+        console.error('❌ שגיאה:', err.message);
+      } else {
+        console.log('✅ Admin נוסף בהצלחה!');
+        console.log('אימייל:', email);
+        console.log('סיסמה:', password);
+      }
+      db.close();
+    }
+  );
+}
+
+addAdmin();
