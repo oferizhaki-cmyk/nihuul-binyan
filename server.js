@@ -617,6 +617,6 @@ app.get('/api/admin/reports/excel-export', verifyToken, requireAdmin, async (req
 initDatabase();
 
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
 });
