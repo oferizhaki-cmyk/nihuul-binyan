@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const nodemailer = require('nodemailer');
 
 const app = express();
 
@@ -49,6 +50,35 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+
+// Email (Nodemailer) Configuration
+const mailTransporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+async function sendApprovalEmail(toEmail, fullName) {
+  try {
+    await mailTransporter.sendMail({
+      from: `"ועד בית מצפה 47" <${process.env.EMAIL_USER}>`,
+      to: toEmail,
+      subject: 'הבקשה שלך אושרה',
+      html: `
+        <div dir="rtl" style="font-family: Arial, sans-serif;">
+          <h2>שלום ${fullName},</h2>
+          <p>הבקשה שלך להצטרפות למערכת ניהול הבניין אושרה על ידי ראש הוועד.</p>
+          <p>כעת תוכל/י להתחבר למערכת עם כתובת המייל והסיסמה שנרשמו בהרשמה.</p>
+        </div>
+      `,
+    });
+    console.log('✅ Approval email sent to', toEmail);
+  } catch (err) {
+    console.error('❌ Failed to send approval email:', err.message);
+  }
+}
 
 function verifyToken(req, res, next) {
   const token = req.headers['authorization']?.split(' ')[1];
@@ -463,8 +493,14 @@ app.get('/api/admin/all-residents', verifyToken, requireAdmin, async (req, res) 
 
 app.post('/api/admin/approve-user/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
+    const userResult = await pool.query(`SELECT email, full_name FROM users WHERE id = $1`, [req.params.id]);
     await pool.query(`UPDATE users SET is_approved = 1 WHERE id = $1`, [req.params.id]);
     res.json({ success: true });
+
+    if (userResult.rows.length > 0) {
+      const { email, full_name } = userResult.rows[0];
+      sendApprovalEmail(email, full_name);
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
