@@ -2484,6 +2484,16 @@ app.get('/api/messages/unread-count', verifyToken, async (req, res) => {
   }
 });
 
+// Committee deletes one message from a resident (the resident's own record is removed too)
+app.delete('/api/admin/messages/:id', verifyToken, requireAdmin, async (req, res) => {
+  try {
+    await dbQuery(`DELETE FROM messages WHERE id = ? AND sender_type = 'resident'`, [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
 }).on('error', (err) => {
