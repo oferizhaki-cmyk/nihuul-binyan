@@ -918,10 +918,15 @@ app.put('/api/admin/maintenance/:id/unarchive', verifyToken, requireAdmin, async
 app.put('/api/admin/maintenance/:id', verifyToken, requireAdmin, async (req, res) => {
   try {
     const { status } = req.body;
+    const reqRows = await dbQuery('SELECT user_id, title FROM maintenance_requests WHERE id = ?', [req.params.id]);
     await dbQuery(
       `UPDATE maintenance_requests SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [status, req.params.id]
     );
+    if (reqRows[0]) {
+      const statusText = { new: 'חדשה', in_progress: 'בעבודה', completed: 'הושלמה' }[status] || status;
+      sendPushToUser(reqRows[0].user_id, 'עודכנה בקשת התחזוקה שלך', (reqRows[0].title || 'בקשה') + ': ' + statusText);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1547,6 +1552,7 @@ app.get('/api/announcements', async (req, res) => {
 app.post('/api/announcements', verifyToken, requireAdmin, async (req, res) => {
   try {
     const { title, content } = req.body;
+    notifyAllResidents('📢 הודעה חדשה מהוועד', title || 'הודעה חדשה');
 
     if (isPostgres) {
       const result = await dbQuery(
@@ -2006,6 +2012,7 @@ app.post('/api/admin/messages/broadcast', verifyToken, requireAdmin, async (req,
     }
 
     res.json({ success: true, sent: residents.length });
+    residents.forEach((r) => sendPushToUser(r.id, 'הודעה חדשה מהוועד', subject));
 
     residents.forEach((r) => sendMessageEmail(r.email, r.full_name, subject, content));
   } catch (err) {
@@ -2493,6 +2500,17 @@ app.delete('/api/admin/messages/:id', verifyToken, requireAdmin, async (req, res
     res.status(500).json({ error: err.message });
   }
 });
+
+// Sends a push to every approved resident (used for announcements)
+async function notifyAllResidents(title, body) {
+  if (!pushEnabled) return;
+  try {
+    const rows = await dbQuery(`SELECT id FROM users WHERE user_type = 'resident' AND is_approved = 1`, []);
+    for (const r of rows) await sendPushToUser(r.id, title, body);
+  } catch (err) {
+    console.error('notifyAllResidents:', err.message);
+  }
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);
