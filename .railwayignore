@@ -1,0 +1,4 @@
+node_modules
+backups
+.git
+*.js.bak
